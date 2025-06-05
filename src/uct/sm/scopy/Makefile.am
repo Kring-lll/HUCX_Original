@@ -4,4 +4,4 @@
 # See file LICENSE for terms.
 #
 
-SUBDIRS = cma knem sdma
+SUBDIRS = cma knem sdma kupl

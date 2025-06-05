@@ -603,11 +603,13 @@ static ucp_tl_alias_t ucp_tl_aliases[] = {
   { "ugni",  { "ugni_smsg", UCP_TL_AUX("ugni_udt"), "ugni_rdma", NULL } },
   { "cuda",  { "cuda_copy", "cuda_ipc", "gdr_copy", NULL } },
   { "rocm",  { "rocm_copy", "rocm_ipc", "rocm_gdr", NULL } },
+  { "kupl",  { "kupl", NULL } },
   { NULL }
 };
 
 const char *tl_exclusions_in_all[] = {
     "rc_fo",
+    "kupl",
     NULL
 };
 
