@@ -63,6 +63,12 @@ static const char *uct_ib_iface_addr_types[] = {
    [UCT_IB_IFACE_ADDRESS_TYPE_LAST] = NULL
 };
 
+const uint32_t uct_ib_iface_spec_devices[] = {
+    0x21,
+    0x30,
+    0x32
+};
+
 ucs_config_field_t uct_ib_iface_config_table[] = {
   {"", "", NULL,
    ucs_offsetof(uct_ib_iface_config_t, super), UCS_CONFIG_TYPE_TABLE(uct_iface_config_table)},
@@ -1770,4 +1776,64 @@ ucs_status_t uct_ib_iface_arm_cq(uct_ib_iface_t *iface,
         return UCS_ERR_IO_ERROR;
     }
     return UCS_OK;
+}
+
+static int32_t uct_ib_iface_read_uint_from_file(const char *path, uint32_t *value)
+{
+    FILE *file;
+    char buffer[32] = {0};
+    unsigned long long val;
+    char *endptr;
+
+    file = fopen(path, "r");
+    if (!file) {
+        return -1;
+    }
+
+    if (!fgets(buffer, sizeof(buffer), file)) {
+        fclose(file);
+        return -1;
+    }
+
+    fclose(file);
+
+    buffer[strcspn(buffer, "\n")] = 0;
+
+    errno = 0;
+    val = strtoull(buffer, &endptr, 0);
+
+    if (endptr == buffer || *endptr != '\0') {
+        return -1;
+    }
+
+    if (errno == ERANGE || val > UINT32_MAX) {
+        return -1;
+    }
+
+    *value = (uint32_t)val;
+    return 0;
+}
+
+uint32_t uct_ib_iface_match_spec_device(const char *ib_dev_name)
+{
+    char revision_path[256];
+    uint32_t revision_id;
+
+    if (snprintf(revision_path, sizeof(revision_path), "/sys/class/infiniband/%s/device/revision", ib_dev_name) < 0) {
+        ucs_error("Failed to format path for device: %s", ib_dev_name);
+        return 1;
+    }
+
+    if (uct_ib_iface_read_uint_from_file(revision_path, &revision_id) != 0) {
+        ucs_error("Get revision id for device:%s failed.", ib_dev_name);
+        return 1;
+    }
+
+    for (size_t i = 0; i < sizeof(uct_ib_iface_spec_devices)/sizeof(uint32_t); i++) {
+        if (revision_id == uct_ib_iface_spec_devices[i]) {
+            return 0;
+        }
+    }
+
+    return 1;
 }
