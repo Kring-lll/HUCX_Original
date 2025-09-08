@@ -15,6 +15,11 @@ libuct_ib_la_LIBADD   = $(top_builddir)/src/ucs/libucs.la \
 libuct_ib_la_LDFLAGS  = $(IBVERBS_LDFLAGS) -version-info $(SOVERSION)
 libmlx5_ver           = $(shell (rpm -qf $(IBVERBS_DIR)/include/infiniband/mlx5_hw.h &>/dev/null && rpm -qf /usr/include/infiniband/mlx5_hw.h) | grep -v 'not owned' | head -1)
 
+if HAVE_HNS
+libuct_ib_la_CPPFLAGS += -I$$(IBVERBS_DIR)/include/infiniband
+libuct_ib_la_LDFLAGS += -lhns
+endif # HAVE_HNS
+
 noinst_HEADERS = \
 	base/ib_device.h \
 	base/ib_iface.h \
