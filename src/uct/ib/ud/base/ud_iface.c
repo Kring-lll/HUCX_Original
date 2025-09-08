@@ -21,7 +21,9 @@
 #include <ucs/vfs/base/vfs_obj.h>
 #include <ucs/vfs/base/vfs_cb.h>
 #include <sys/poll.h>
-
+#ifdef HAVE_HNS
+#include <infiniband/hnsdv.h>
+#endif
 
 #define UCT_UD_IFACE_CEP_CONN_SN_MAX ((uct_ud_ep_conn_sn_t)-1)
 
@@ -36,7 +38,6 @@ static ucs_stats_class_t uct_ud_iface_stats_class = {
     }
 };
 #endif
-
 
 static void uct_ud_iface_free_pending_rx(uct_ud_iface_t *iface);
 static void uct_ud_iface_free_async_comps(uct_ud_iface_t *iface);
@@ -183,19 +184,30 @@ static void uct_ud_iface_destroy_qp(uct_ud_iface_t *ud_iface)
 }
 
 static ucs_status_t
-uct_ud_iface_create_qp(uct_ud_iface_t *self, const uct_ud_iface_config_t *config)
+uct_ud_iface_create_qp(uct_ud_iface_t *self, const uct_ud_iface_config_t *config, uct_ib_device_t *dev)
 {
     uct_ud_iface_ops_t *ops = ucs_derived_of(self->super.ops, uct_ud_iface_ops_t);
     uct_ib_qp_attr_t qp_init_attr = {};
     struct ibv_qp_attr qp_attr;
     static ucs_status_t status;
     int ret;
+    uint32_t is_supported = 0;
+    const char *ib_dev_name;
 
     qp_init_attr.qp_type             = IBV_QPT_UD;
     qp_init_attr.sq_sig_all          = 0;
     qp_init_attr.cap.max_send_wr     = config->super.tx.queue_len;
     qp_init_attr.cap.max_recv_wr     = config->super.rx.queue_len;
-    qp_init_attr.cap.max_send_sge    = config->super.tx.min_sge + 1;
+
+    #ifdef HAVE_HNS
+        is_supported = hnsdv_is_supported(dev->ibv_context->device);
+    #endif
+    ib_dev_name = ibv_get_device_name(dev->ibv_context->device);
+    if (is_supported && uct_ib_iface_match_spec_device(ib_dev_name) == 0) {
+        qp_init_attr.cap.max_send_sge     = 2;
+    } else {
+        qp_init_attr.cap.max_send_sge    = config->super.tx.min_sge + 1;
+    }
     qp_init_attr.cap.max_recv_sge    = 1;
     qp_init_attr.cap.max_inline_data = config->super.tx.min_inline;
 
@@ -461,6 +473,7 @@ UCS_CLASS_INIT_FUNC(uct_ud_iface_t, uct_ud_iface_ops_t *ops,
     ucs_status_t status;
     size_t data_size;
     int mtu;
+    uct_ib_device_t *dev;
 
     UCT_CHECK_PARAM(params->field_mask & UCT_IFACE_PARAM_FIELD_OPEN_MODE,
                     "UCT_IFACE_PARAM_FIELD_OPEN_MODE is not defined");
@@ -567,7 +580,8 @@ UCS_CLASS_INIT_FUNC(uct_ud_iface_t, uct_ud_iface_ops_t *ops,
 
     ucs_ptr_array_init(&self->eps, "ud_eps");
 
-    status = uct_ud_iface_create_qp(self, config);
+    dev = &ucs_derived_of(md, uct_ib_md_t)->dev;
+    status = uct_ud_iface_create_qp(self, config, dev);
     if (status != UCS_OK) {
         goto err_eps_array;
     }

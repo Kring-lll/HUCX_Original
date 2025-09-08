@@ -302,6 +302,16 @@ AS_IF([test "x$with_ib" = "xyes"],
         with_mlx5_dv=no
     ])
 
+AC_CHECK_LIB([hns], [hnsdv_is_supported],
+    [
+        AC_DEFINE([HAVE_HNS], [1], [Define if libhns is available])
+        LIBS="$LIBS -lhns"
+    ],
+    [
+        AC_MSG_WARN([libhns not found, some HNS-related features will be disabled])
+    ]
+)
+
 #
 # For automake
 #
@@ -313,6 +323,7 @@ AM_CONDITIONAL([HAVE_TL_UD],   [test "x$with_ud" != xno])
 AM_CONDITIONAL([HAVE_MLX5_DV], [test "x$with_mlx5_dv" = xyes])
 AM_CONDITIONAL([HAVE_DEVX],    [test -n "$have_devx"])
 AM_CONDITIONAL([HAVE_MLX5_HW_UD], [test "x$with_mlx5_dv" != xno -a "x$has_get_av" != xno])
+AM_CONDITIONAL([HAVE_HNS], [test "x$HAVE_HNS" = xyes])
 
 uct_ib_modules=""
 m4_include([src/uct/ib/rdmacm/configure.m4])
