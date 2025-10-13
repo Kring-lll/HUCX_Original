@@ -3249,7 +3249,11 @@ UCT_INLINE_API void uct_ep_pending_purge(uct_ep_h ep,
 UCT_INLINE_API ucs_status_t uct_ep_flush(uct_ep_h ep, unsigned flags,
                                          uct_completion_t *comp)
 {
-    return ep->iface->ops.ep_flush(ep, flags, comp);
+    ucs_status_t status;
+    printf("===TEST, call uct_ep_flush.\n");
+    status = ep->iface->ops.ep_flush(ep, flags, comp);
+    printf("===TEST, after ep_flush.\n");
+    return status;
 }
 
 
@@ -3609,6 +3613,9 @@ UCT_INLINE_API void uct_iface_progress_disable(uct_iface_h iface, unsigned flags
  */
 UCT_INLINE_API unsigned uct_iface_progress(uct_iface_h iface)
 {
+    static int cnt = 0;
+    cnt++;
+    printf("===TEST, [uct_iface_progress]:cnt=%d\n", cnt);
     return iface->ops.iface_progress(iface);
 }
 

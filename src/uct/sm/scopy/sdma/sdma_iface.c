@@ -49,13 +49,14 @@ static ucs_config_field_t uct_sdma_iface_config_table[] = {
     {NULL}
 };
 
-ucs_status_t uct_sdma_iface_progress_exec(uct_sdma_iface_t *iface)
+static uint32_t uct_sdma_iface_progress_exec(uct_sdma_iface_t *iface)
 {
     uct_sdma_req_queue_t *sq = &(iface->req_q_iface);
     int i;
     int flight = 0; /* 未结束的任务 */
     int result = 0; /* 任务执行结果 */
     int ret; 
+    uint32_t count = 0;
 
     /* 处理下已完成的sdma任务 */
     ucs_spin_lock(&iface->lock);
@@ -66,6 +67,8 @@ ucs_status_t uct_sdma_iface_progress_exec(uct_sdma_iface_t *iface)
 
     /* 检查sdma任务执行结果 */
     i = sq->head;
+    ucs_error("===TEST, uct_sdma_iface_progress_exec sq->head=%d, sq->tail=%d", sq->head, sq->tail);
+
     while (i != sq->tail) {
         /**
          * 如果当前任务还未结束，则认为后续的任务都没有结束。
@@ -77,6 +80,7 @@ ucs_status_t uct_sdma_iface_progress_exec(uct_sdma_iface_t *iface)
              * and sdma_iquery_chn dont call task_cb.
              */
             ret = sdma_iquery_chn(iface->src_sdma_handle, &sq->reqs[i].request);
+            ucs_error("===TEST, uct_sdma_iface_progress_exec ret=%d", ret);
             if (ret != SDMA_SUCCESS) {
                 if (ret == SDMA_RNDCNT_ERR) {
                     sq->timeout++;
@@ -118,13 +122,14 @@ ucs_status_t uct_sdma_iface_progress_exec(uct_sdma_iface_t *iface)
 
         /* 更新head指针 */
         sq->head = i;
+        count++;
     }
 
     /* 任务执行完毕 */
     if (flight == 0) {
         sq->timeout = 0;
         ucs_spin_unlock(&iface->lock);
-        return UCS_OK;
+        return count;
     }
 
     if (sq->timeout > EP_PROGRESS_TIMEOUT) {
@@ -134,7 +139,7 @@ ucs_status_t uct_sdma_iface_progress_exec(uct_sdma_iface_t *iface)
     }
 
     ucs_spin_unlock(&iface->lock);
-    return UCS_INPROGRESS;
+    return count;
 }
 
 static ucs_status_t uct_sdma_iface_query(uct_iface_h tl_iface, uct_iface_attr_t *attr)
@@ -214,11 +219,11 @@ static unsigned uct_sdma_iface_progress(uct_iface_h tl_iface)
     uct_sdma_iface_t *iface = ucs_derived_of(tl_iface, uct_sdma_iface_t);
     sdma_shmem_field_t *sdma_shmem_field;
     ucs_status_t status = UCS_OK;
-    ucs_status_t progress;
     int am_short_bit;
     unsigned length;
     uint8_t id;
     void *header;
+    uint32_t count = 0;
 
     sdma_shmem_field = (sdma_shmem_field_t *)iface->shmem_msg->shmem_base;
     for (int k = 0; k < SHMEM_FIELD_SIZE; k++) {
@@ -235,17 +240,56 @@ static unsigned uct_sdma_iface_progress(uct_iface_h tl_iface)
                 status = uct_iface_invoke_am(&iface->super, id, (void *)sdma_shmem_field->am_desc[k].am_field.buff,
                                              length, UCT_CB_PARAM_FLAG_DESC);
             }
+            if (status != UCS_OK) {
+                ucs_warn("sdma iface invoke am failed %d", status);
+            }
 
             memset(&sdma_shmem_field->am_desc[k], 0x0, sizeof(sdma_am_desc_t));
         }
     }
 
-    progress = uct_sdma_iface_progress_exec(iface);
-    if (progress != UCS_OK) {
-        status = progress;
+    count = uct_sdma_iface_progress_exec(iface);
+    ucs_error("===TEST, uct_sdma_iface_progress count=%d", count);
+    ucs_arbiter_dispatch(&iface->arbiter, 1, uct_sdma_ep_process_pending,
+                         &count);
+
+    return count;
+}
+
+ucs_status_t uct_sdma_iface_flush(uct_iface_h tl_iface, unsigned flags,
+                                uct_completion_t *comp)
+{
+    uct_sdma_iface_t *iface = ucs_derived_of(tl_iface, uct_sdma_iface_t);
+    ucs_status_t status;
+    unsigned count;
+    uct_sdma_ep_t *ep;
+
+    if (comp != NULL) {
+        return UCS_ERR_UNSUPPORTED;
     }
 
-    return status;
+    // status = uct_rc_iface_fence_relaxed_order(tl_iface);
+    // if (status != UCS_OK) {
+    //     return status;
+    // }
+
+    count = 0;
+    ucs_list_for_each(ep, &iface->ep_list, list) {
+        status = uct_ep_flush(&ep->super.super, 0, NULL);
+        if ((status == UCS_ERR_NO_RESOURCE) || (status == UCS_INPROGRESS)) {
+            ++count;
+        } else if (status != UCS_OK) {
+            return status;
+        }
+    }
+
+    if (count != 0) {
+        UCT_TL_IFACE_STAT_FLUSH_WAIT(&iface->super.super);
+        return UCS_INPROGRESS;
+    }
+
+    UCT_TL_IFACE_STAT_FLUSH(&iface->super.super);
+    return UCS_OK;
 }
 
 static UCS_CLASS_DECLARE_DELETE_FUNC(uct_sdma_iface_t, uct_iface_t);
@@ -258,14 +302,14 @@ static uct_iface_ops_t uct_sdma_iface_ops = {
     .ep_get_bcopy = uct_sdma_ep_get_bcopy,
     .ep_am_short = uct_sdma_ep_am_short,
     .ep_am_bcopy = uct_sdma_ep_am_bcopy,
-    .ep_pending_add = (uct_ep_pending_add_func_t)ucs_empty_function_return_busy,
-    .ep_pending_purge = (uct_ep_pending_purge_func_t)ucs_empty_function,
+    .ep_pending_add = uct_sdma_ep_pending_add,
+    .ep_pending_purge = uct_sdma_ep_pending_purge,
     .ep_flush = uct_sdma_ep_flush,
     .ep_fence = uct_base_ep_fence,
     .ep_check = (uct_ep_check_func_t)ucs_empty_function_return_success,
     .ep_create = UCS_CLASS_NEW_FUNC_NAME(uct_sdma_ep_t),
     .ep_destroy = UCS_CLASS_DELETE_FUNC_NAME(uct_sdma_ep_t),
-    .iface_flush = uct_base_iface_flush,
+    .iface_flush = uct_sdma_iface_flush,
     .iface_fence = uct_base_iface_fence,
     .iface_progress_enable = uct_base_iface_progress_enable,
     .iface_progress_disable = uct_base_iface_progress_disable,
@@ -357,11 +401,14 @@ static UCS_CLASS_INIT_FUNC(uct_sdma_iface_t, uct_md_h md, uct_worker_h worker, c
     self->req_q_iface.tail = 0;
     self->req_q_iface.size = SDMA_REQ_FIFO_SIZE;
     self->req_q_iface.timeout = 0;
+    ucs_list_head_init(&self->ep_list);
+
     status = ucs_spinlock_init(&self->lock, 0);
     if (status != UCS_OK) {
         ucs_error("lock init failed, err = %d", status);
         return status;
     }
+    ucs_arbiter_init(&self->arbiter);
     ucs_info("sdma: iface[%d:%d] init", self->pid, self->cur_cpu);
 
     return UCS_OK;
@@ -378,7 +425,7 @@ static UCS_CLASS_CLEANUP_FUNC(uct_sdma_iface_t)
             sdma_free_chn(self->src_sdma_handle);
         }
     }
-
+    ucs_arbiter_cleanup(&self->arbiter);
     ret = uct_shmem_del(self->shmem_msg);
     if (ret) {
         ucs_error("shmem_del failed");
