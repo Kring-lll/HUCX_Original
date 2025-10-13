@@ -25,6 +25,7 @@ typedef struct uct_sdma_ep {
     sdma_shmem_msg_t *remote_shmem_msg;
     uct_sdma_req_queue_t *req_q;
     ucs_arbiter_group_t arb_group;
+    ucs_list_link_t     list;
 } uct_sdma_ep_t;
 
 /**
@@ -62,4 +63,14 @@ ucs_status_t uct_creat_shmem(int ftok_id, sdma_shmem_msg_t *shmem_msg);
 ucs_status_t uct_shmem_del(sdma_shmem_msg_t *shmem_msg);
 
 ucs_status_t uct_sdma_ep_flush(uct_ep_h tl_ep, unsigned flags, uct_completion_t *comp);
+
+ucs_status_t uct_sdma_ep_pending_add(uct_ep_h tl_ep, uct_pending_req_t *n, unsigned flags);
+
+void uct_sdma_ep_pending_purge(uct_ep_h tl_ep, uct_pending_purge_callback_t cb, void *arg);
+
+ucs_arbiter_cb_result_t uct_sdma_ep_process_pending(ucs_arbiter_t *arbiter,
+                                                    ucs_arbiter_group_t *group,
+                                                    ucs_arbiter_elem_t *elem,
+                                                    void *arg);
+
 #endif

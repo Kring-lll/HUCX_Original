@@ -25,7 +25,9 @@ ucs_status_t uct_sdma_ep_flush(uct_ep_h tl_ep, unsigned flags,
     int flight = 0;
     int result = 0;
     int i, ret;
+    int count = 0;
 
+    ucs_error("===TEST, uct_sdma_ep_flush sq->head=%d, sq->tail=%d", sq->head, sq->tail);
     ucs_spin_lock(&sdma_ep->lock);
     if (!iface->config.shared_mode) {
         sdma_progress(iface->src_sdma_handle);
@@ -36,6 +38,7 @@ ucs_status_t uct_sdma_ep_flush(uct_ep_h tl_ep, unsigned flags,
         if (iface->config.shared_mode) {
             /* must wait channal completed */
             ret = sdma_iwait_chn(iface->src_sdma_handle, &sq->reqs[i].request);
+            ucs_error("===TEST, uct_sdma_ep_flush ret=%d, SDMA_SUCCESS:%d, SDMA_RNDCNT_ERR:%d", ret, SDMA_SUCCESS, SDMA_RNDCNT_ERR);
             if (ret != SDMA_SUCCESS) {
                 if (ret == SDMA_RNDCNT_ERR) {
                     sq->timeout++;
@@ -69,6 +72,7 @@ ucs_status_t uct_sdma_ep_flush(uct_ep_h tl_ep, unsigned flags,
         }
 
         sq->head = i;
+        count++;
     }
 
     if (flight == 0) {
@@ -82,6 +86,9 @@ ucs_status_t uct_sdma_ep_flush(uct_ep_h tl_ep, unsigned flags,
         ucs_warn("sdma: ep[%d->%d] requests already query %d times", sdma_ep->local_ifaceid,
             sdma_ep->remote_ifaceid, EP_FLUSH_TIMEOUT);
     }
+
+    ucs_arbiter_dispatch(&iface->arbiter, 1, uct_sdma_ep_process_pending,
+                         &count);
 
     ucs_spin_unlock(&sdma_ep->lock);
 
@@ -110,10 +117,10 @@ static uct_sdma_req_t *uct_sdma_ep_alloc_req(uct_sdma_ep_t *ep)
     if (next_tail == ep->req_q->size) {
         next_tail = 0;
     }
-
+    ucs_error("===TEST, ep->req_q->head:%d, ep->req_q->tail:%d, next_tail:%d", ep->req_q->head, ep->req_q->tail, next_tail);
     /* 没有空闲资源则 */
     if (ep->req_q->head == next_tail) {
-        ucs_error("sdma: ep[%d->%d] request fifo is full", ep->local_ifaceid, ep->remote_ifaceid);
+        ucs_debug("sdma: ep[%d->%d] request fifo is full", ep->local_ifaceid, ep->remote_ifaceid);
         return NULL;
     }
     pos = ep->req_q->tail;
@@ -139,6 +146,18 @@ static void uct_sdma_ep_free_req(uct_sdma_ep_t *ep, int count)
         count--;
     }
     return;
+}
+
+/* return 0 means no resource */
+static int uct_sdma_ep_check_req_res(uct_sdma_ep_t *ep)
+{
+    int next_tail;
+    next_tail = ep->req_q->tail + 1;
+    if (next_tail == ep->req_q->size) {
+        next_tail = 0;
+    }
+
+    return ep->req_q->head != next_tail;
 }
 
 static void uct_sdma_ep_create_task(sdma_sqe_task_t *s_task, uint64_t src_addr, uint64_t dst_addr,
@@ -255,6 +274,8 @@ ucs_status_t uct_sdma_ep_put_short(uct_ep_h tl_ep, const void *buffer, unsigned 
     uct_sdma_req_t *s_req;
     sdma_sqe_task_t *s_task;
     ucs_status_t status;
+    //int ret;
+    static int cnt = 0;
 
     ucs_info("sdma: ep[%d->%d] uct_sdma_ep_put_short2, length = %u",
         ep->local_ifaceid, ep->remote_ifaceid, length);
@@ -267,7 +288,7 @@ ucs_status_t uct_sdma_ep_put_short(uct_ep_h tl_ep, const void *buffer, unsigned 
     /* 从资源池找1个空闲资源 */
     s_req = uct_sdma_ep_alloc_req(ep);
     if (s_req == NULL) {
-        ucs_error("sdma: ep[%d->%d] put short failed, not enough slot",
+        ucs_debug("sdma: ep[%d->%d] put short failed, not enough slot",
             ep->local_ifaceid, ep->remote_ifaceid);
         UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), PUT, SHORT, length);
         return UCS_ERR_NO_RESOURCE;
@@ -277,16 +298,30 @@ ucs_status_t uct_sdma_ep_put_short(uct_ep_h tl_ep, const void *buffer, unsigned 
     s_task = &(s_req->task);
     uct_sdma_ep_create_task(s_task, (uint64_t)buffer, remote_addr, ep->ep_pasid, ep->remote_pasid,
         length, uct_sdma_req_cb, s_req);
-
+    cnt++;
+    ucs_error("===TEST, enter sdma_icopy_data, buffer:%p, remote_addr:%p, ep->ep_pasid:%d, ep->remote_pasid:%d, length:%d, cnt=%d.",
+               buffer, (void *)remote_addr, ep->ep_pasid, ep->remote_pasid, length, cnt);
     /* 提交sdma任务 */
     if (iface->config.shared_mode) {
+
         status = sdma_icopy_data(ep->chn_ctx, s_task, 1, &(s_req->request));
+        // ret = sdma_iwait_chn(iface->src_sdma_handle,  &(s_req->request));
+        // if (ret != 0) {
+        //     printf("===TEST, sdma_iwait_chn failed, ret = %d\n", ret);
+        //     uct_sdma_ep_free_req(ep, 1);
+        //     return UCS_ERR_IO_ERROR;
+        // } else {
+        //     printf("===TEST, sdma iwait success!\n");
+        //     uct_sdma_ep_free_req(ep, 1);
+        //     return UCS_OK;
+        // }
+        
     } else {
         status = sdma_copy_data(ep->chn_ctx, s_task, 1);
     }
     if (status != UCS_OK) {
         uct_sdma_ep_free_req(ep, 1);
-        ucs_fatal("sdma: ep[%d->%d] put short failed, status = %d", ep->local_ifaceid, ep->remote_ifaceid, status);
+        return UCS_ERR_NO_RESOURCE;
     }
 
     UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), PUT, SHORT, length);
@@ -316,7 +351,7 @@ ssize_t uct_sdma_ep_put_bcopy(uct_ep_h tl_ep, uct_pack_callback_t pack_cb, void 
     /* 从资源池找1个空闲资源 */
     s_req = uct_sdma_ep_alloc_req(ep);
     if (s_req == NULL) {
-        ucs_error("sdma: ep[%d->%d] put bcopy failed, not enough slot",
+        ucs_debug("sdma: ep[%d->%d] put bcopy failed, not enough slot",
             ep->local_ifaceid, ep->remote_ifaceid);
         UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), PUT, BCOPY, length);
         return UCS_ERR_NO_RESOURCE;
@@ -335,7 +370,7 @@ ssize_t uct_sdma_ep_put_bcopy(uct_ep_h tl_ep, uct_pack_callback_t pack_cb, void 
     }
     if (status != UCS_OK) {
         uct_sdma_ep_free_req(ep, 1);
-        ucs_fatal("sdma: ep[%d->%d] put bcopy failed, status = %d", ep->local_ifaceid, ep->remote_ifaceid, status);
+        return UCS_ERR_NO_RESOURCE;
     }
 
     UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), PUT, BCOPY, length);
@@ -369,7 +404,7 @@ ucs_status_t uct_sdma_ep_put_zcopy(uct_ep_h tl_ep, const uct_iov_t *iov, size_t 
     /* 从资源池找1个空闲资源 */
     s_req = uct_sdma_ep_alloc_req(ep);
     if (s_req == NULL) {
-        ucs_error("sdma: ep[%d->%d] put zcopy failed, not enough slot",
+        ucs_debug("sdma: ep[%d->%d] put zcopy failed, not enough slot",
             ep->local_ifaceid, ep->remote_ifaceid);
         UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), PUT, ZCOPY, iov_cnt);
         return UCS_ERR_NO_RESOURCE;
@@ -391,7 +426,7 @@ ucs_status_t uct_sdma_ep_put_zcopy(uct_ep_h tl_ep, const uct_iov_t *iov, size_t 
     }
     if (status != UCS_OK) {
         uct_sdma_ep_free_req(ep, 1);
-        ucs_fatal("sdma: ep[%d->%d] put zcopy failed, status = %d", ep->local_ifaceid, ep->remote_ifaceid, status);
+        return UCS_ERR_NO_RESOURCE;
     }
 
     UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), PUT, ZCOPY, iov_cnt);
@@ -422,7 +457,7 @@ ucs_status_t uct_sdma_ep_get_zcopy(uct_ep_h tl_ep, const uct_iov_t *iov, size_t 
     /* 从资源池找1个空闲资源 */
     s_req = uct_sdma_ep_alloc_req(ep);
     if (s_req == NULL) {
-        ucs_error("sdma: ep[%d->%d] get zcopy failed, not enough slot",
+        ucs_debug("sdma: ep[%d->%d] get zcopy failed, not enough slot",
             ep->local_ifaceid, ep->remote_ifaceid);
         UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), GET, ZCOPY, iov_cnt);
         return UCS_ERR_NO_RESOURCE;
@@ -444,7 +479,7 @@ ucs_status_t uct_sdma_ep_get_zcopy(uct_ep_h tl_ep, const uct_iov_t *iov, size_t 
     }
     if (status != UCS_OK) {
         uct_sdma_ep_free_req(ep, 1);
-        ucs_fatal("sdma: ep[%d->%d] get zcopy failed, status = %d", ep->local_ifaceid, ep->remote_ifaceid, status);
+        return UCS_ERR_NO_RESOURCE;
     }
 
     UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), GET, ZCOPY, iov_cnt);
@@ -473,7 +508,7 @@ ucs_status_t uct_sdma_ep_get_bcopy(uct_ep_h tl_ep, uct_unpack_callback_t unpack_
     /* 从资源池找1个空闲资源 */
     s_req = uct_sdma_ep_alloc_req(ep);
     if (s_req == NULL) {
-        ucs_error("sdma: ep[%d->%d] get bcopy failed, not enough slot",
+        ucs_debug("sdma: ep[%d->%d] get bcopy failed, not enough slot",
             ep->local_ifaceid, ep->remote_ifaceid);
         UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), PUT, BCOPY, length);
         return UCS_ERR_NO_RESOURCE;
@@ -495,7 +530,7 @@ ucs_status_t uct_sdma_ep_get_bcopy(uct_ep_h tl_ep, uct_unpack_callback_t unpack_
     }
     if (status != UCS_OK) {
         uct_sdma_ep_free_req(ep, 1);
-        ucs_fatal("sdma: ep[%d->%d] get bcopy failed, status = %d", ep->local_ifaceid, ep->remote_ifaceid, status);
+        return UCS_ERR_NO_RESOURCE;
     }
 
     UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), GET, BCOPY, length);
@@ -556,6 +591,88 @@ ucs_status_t uct_shmem_del(sdma_shmem_msg_t *shmem_msg)
     return ret;
 }
 
+ucs_status_t uct_sdma_ep_pending_add(uct_ep_h tl_ep, uct_pending_req_t *n,
+                                     unsigned flags)
+{
+    uct_sdma_iface_t *iface = ucs_derived_of(tl_ep->iface, uct_sdma_iface_t);
+    uct_sdma_ep_t *ep = ucs_derived_of(tl_ep, uct_sdma_ep_t);
+    static int cnt = 0;
+
+    cnt++;
+    ucs_error("===TEST, uct_sdma_ep_pending_adFd cnt=%d", cnt);
+    UCS_STATIC_ASSERT(sizeof(uct_pending_req_priv_arb_t) <=
+                      UCT_PENDING_REQ_PRIV_LEN);
+    uct_pending_req_arb_group_push(&ep->arb_group, n);
+    /* add the ep's group to the arbiter */
+    ucs_arbiter_group_schedule(&iface->arbiter, &ep->arb_group);
+
+    return UCS_OK;
+}
+
+static ucs_arbiter_cb_result_t uct_sdma_ep_arbiter_purge_cb(ucs_arbiter_t *arbiter,
+                                                            ucs_arbiter_group_t *group,
+                                                            ucs_arbiter_elem_t *elem,
+                                                            void *arg)
+{
+    uct_sdma_ep_t *ep = ucs_container_of(group, uct_sdma_ep_t,
+                                                         arb_group);
+    uct_purge_cb_args_t *cb_args = arg;
+    uct_pending_purge_callback_t cb = cb_args->cb;
+    uct_pending_req_t *req;
+
+    req = ucs_container_of(elem, uct_pending_req_t, priv);
+    if (cb != NULL) {
+        cb(req, cb_args->arg);
+    } else {
+        ucs_warn("ep=%p canceling user pending request %p", ep, req);
+    }
+
+    return UCS_ARBITER_CB_RESULT_REMOVE_ELEM;
+}
+
+void uct_sdma_ep_pending_purge(uct_ep_h tl_ep, uct_pending_purge_callback_t cb,
+                               void *arg)
+{
+    uct_sdma_iface_t *iface = ucs_derived_of(tl_ep->iface, uct_sdma_iface_t);
+    uct_sdma_ep_t *ep = ucs_derived_of(tl_ep, uct_sdma_ep_t);
+    uct_purge_cb_args_t args = {cb, arg};
+
+    ucs_arbiter_group_purge(&iface->arbiter, &ep->arb_group,
+                            uct_sdma_ep_arbiter_purge_cb, &args);
+}
+
+ucs_arbiter_cb_result_t uct_sdma_ep_process_pending(ucs_arbiter_t *arbiter,
+                                                    ucs_arbiter_group_t *group,
+                                                    ucs_arbiter_elem_t *elem,
+                                                    void *arg)
+{
+    uct_sdma_ep_t *ep = ucs_container_of(group, uct_sdma_ep_t, arb_group);
+    uint32_t *count = (uint32_t *)arg;
+    uct_pending_req_t *req;
+    ucs_status_t status;
+
+    if (!uct_sdma_ep_check_req_res(ep)) {
+        return UCS_ARBITER_CB_RESULT_RESCHED_GROUP;
+    }
+
+    req = ucs_container_of(elem, uct_pending_req_t, priv);
+
+    ucs_trace_data("progressing pending request %p", req);
+    status = req->func(req);
+    ucs_trace_data("status returned from progress pending: %s",
+                   ucs_status_string(status));
+
+    if (status == UCS_OK || status == UCS_INPROGRESS) {
+        (*count)++;
+        /* sent successfully. remove from the arbiter */
+        return UCS_ARBITER_CB_RESULT_REMOVE_ELEM;
+    } else {
+        /* couldn't send. keep this request in the arbiter until the next time
+         * this function is called */
+        return UCS_ARBITER_CB_RESULT_RESCHED_GROUP;
+    }
+}
+
 static UCS_CLASS_INIT_FUNC(uct_sdma_ep_t, const uct_ep_params_t *params)
 {
     uct_sdma_iface_addr_t *iface_addr = (uct_sdma_iface_addr_t *)params->iface_addr;
@@ -590,6 +707,8 @@ static UCS_CLASS_INIT_FUNC(uct_sdma_ep_t, const uct_ep_params_t *params)
     self->remote_shmem_msg = remote_shmem_msg;
 
     self->req_q = &iface->req_q_iface;
+    ucs_list_add_head(&iface->ep_list, &self->list);
+
     status = ucs_spinlock_init(&self->lock, 0);
     if (status != UCS_OK) {
         ucs_error("lock init failed, err = %d", status);

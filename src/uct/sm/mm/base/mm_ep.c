@@ -530,7 +530,7 @@ ucs_status_t uct_mm_ep_flush(uct_ep_h tl_ep, unsigned flags,
                              uct_completion_t *comp)
 {
     uct_mm_ep_t *ep = ucs_derived_of(tl_ep, uct_mm_ep_t);
-
+    ucs_error("===TEST, call uct_mm_ep_flush.");
     if (!uct_mm_ep_has_tx_resources(ep)) {
         if (!ucs_arbiter_group_is_empty(&ep->arb_group)) {
             return UCS_ERR_NO_RESOURCE;

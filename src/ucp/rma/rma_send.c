@@ -193,6 +193,9 @@ ucs_status_t ucp_put_nbi(ucp_ep_h ep, const void *buffer, size_t length,
 {
     ucs_status_ptr_t status_ptr;
 
+    static int cnt = 0;
+    cnt++;
+    printf("===TEST, [ucp_put_nbi] cnt=%d\n",cnt);
     status_ptr = ucp_put_nbx(ep, buffer, length, remote_addr, rkey,
                              &ucp_request_null_param);
     if (UCS_PTR_IS_PTR(status_ptr)) {

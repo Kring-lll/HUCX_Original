@@ -369,6 +369,7 @@ void uct_base_iface_progress_disable(uct_iface_h tl_iface, unsigned flags)
 ucs_status_t uct_base_iface_flush(uct_iface_h tl_iface, unsigned flags,
                                   uct_completion_t *comp)
 {
+    ucs_error("===TEST, enter uct_base_iface_flush.");
     UCT_TL_IFACE_STAT_FLUSH(ucs_derived_of(tl_iface, uct_base_iface_t));
     return UCS_OK;
 }

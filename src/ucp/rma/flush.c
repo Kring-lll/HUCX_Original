@@ -96,7 +96,7 @@ static void ucp_ep_flush_progress(ucp_request_t *req)
 
         req->send.flush.num_lanes = num_lanes;
     }
-
+    ucs_error("===TEST, enter ucp_ep_flush_progress.");
     ucp_trace_req(req,
                   "progress ep=%p flush flags=0x%x started_lanes=0x%x count=%d",
                   ep, ep->flags, req->send.flush.started_lanes,
@@ -641,6 +641,7 @@ UCS_PROFILE_FUNC(ucs_status_ptr_t, ucp_worker_flush_nb, (worker, flags, cb),
         .op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK,
         .cb.send      = (ucp_send_nbx_callback_t)cb
     };
+    ucs_error("===TEST, call ucp_worker_flush_nb.");
 
     return ucp_worker_flush_nbx(worker, &param);
 }

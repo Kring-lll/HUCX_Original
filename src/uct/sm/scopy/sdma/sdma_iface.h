@@ -16,7 +16,7 @@
 #define SDMA_BANDWIDTH 16911
 #define MAX_SDMA_DEV_NUM 4
 #define DIE_NUM_PER_SOCKET 2
-#define SDMA_REQ_FIFO_SIZE 65536
+#define SDMA_REQ_FIFO_SIZE 101
 
 typedef struct uct_sdma_req {
     sdma_sqe_task_t task;
@@ -101,6 +101,8 @@ typedef struct uct_sdma_iface {
         int shared_mode;    /* share channels mode */
         int max_num_ppn;    /* Max ppn for sdma enabled */
     } config;
+    ucs_arbiter_t arbiter;
+    ucs_list_link_t ep_list;
 } uct_sdma_iface_t;
 
 int uct_sdma_iface_register_ep(uct_sdma_iface_t *iface, void *ep, progress_callback cb);
