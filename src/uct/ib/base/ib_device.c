@@ -564,13 +564,13 @@ ucs_status_t uct_ib_device_query(uct_ib_device_t *dev,
 
     dev->sys_dev = ucs_topo_get_sysfs_dev(dev_name, sysfs_path,
                                           sys_device_priority);
-    uct_ib_device_set_pci_id(dev, sysfs_path);
-    // if (uct_hns_device_spec_match_and_set(dev)) {
-    //     sysfs_path = NULL;
-    // } else {
-    //     uct_ib_device_set_pci_id(dev, sysfs_path);
-    // }
-
+    // uct_ib_device_set_pci_id(dev, sysfs_path);
+    if (uct_hns_device_spec_match_and_set(dev)) {
+        sysfs_path = NULL;
+    } else {
+        uct_ib_device_set_pci_id(dev, sysfs_path);
+    }
+    ucx_info("dev->pci_id.vendor is %d,dev->pci_id.device is %d\n",dev->pci_id.vendor, dev->pci_id.device);
     dev->pci_bw = ucs_topo_get_pci_bw(dev_name, sysfs_path);
 
     return UCS_OK;
