@@ -65,7 +65,7 @@ void ucs_mpool_params_reset(ucs_mpool_params_t *params)
     params->alignment       = UCS_SYS_CACHE_LINE_SIZE;
     params->malloc_safe     = 0;
     params->elems_per_chunk = 128;
-    params->max_chunk_size  = 128 * UCS_MBYTE;
+    params->max_chunk_size  = 2560 * UCS_MBYTE; // change 128 to 2560 ,128 too small lead to plummer-opt failed
     params->max_elems       = UINT_MAX;
     params->grow_factor     = 1.0;
     params->ops             = NULL;
