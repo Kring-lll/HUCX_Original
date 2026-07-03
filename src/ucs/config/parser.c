@@ -2189,17 +2189,17 @@ static uint32_t ucs_has_spec_device(ucs_config_match_device_func func)
     return 0;
 }
 #else
-ucs_status_t ucs_config_match_spec_device(const char *ib_dev_name, const uint32_t vendor_part_id)
+uint32_t ucs_config_match_spec_device(const char *ib_dev_name, const uint32_t vendor_part_id)
 {
     return 0;
 }
 
-ucs_status_t ucs_config_match_SP670_device(const char *ib_dev_name, const uint32_t vendor_part_id)
+uint32_t ucs_config_match_SP670_device(const char *ib_dev_name, const uint32_t vendor_part_id)
 {
     return 0;
 }
 
-static ucs_status_t ucs_has_spec_device(ucs_config_match_device_func func)
+static uint32_t ucs_has_spec_device(ucs_config_match_device_func func)
 {
     return 0;
 }
