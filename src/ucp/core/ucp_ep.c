@@ -1142,11 +1142,26 @@ ucp_ep_create_api_to_worker_addr(ucp_worker_h worker,
     }
 
     /* if needed, send initial wireup message */
+    /*
+     * If we use the tp_aware mode in ub transport, we need
+     * UCP_EP_FLAG_FIELD_CONN_PASSIVE flag to ensure if the
+     * uct_ep is created before ucp_ep.
+     */
+    if (worker->context->config.ext.tp_aware) {
+        if (!(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED) && !(ep->flags & UCP_EP_FLAG_FIELD_CONN_PASSIVE)) {
+            ucs_assert(!(ep->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED));
+            status = ucp_wireup_send_request(ep);
+            if (status != UCS_OK) {
+                goto out_free_address;
+            }
+        }
+    } else {
     if (!(ep->flags & UCP_EP_FLAG_LOCAL_CONNECTED)) {
         ucs_assert(!(ep->flags & UCP_EP_FLAG_CONNECT_REQ_QUEUED));
         status = ucp_wireup_send_request(ep);
         if (status != UCS_OK) {
             goto out_free_address;
+            }
         }
     }
 
